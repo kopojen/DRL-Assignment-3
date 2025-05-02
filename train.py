@@ -52,7 +52,7 @@ class MarioPreprocessor:
         self.resize_dims = (self.width, self.height)
         self.num_frames = num_frames
         # Initialize buffer with blank frames
-        blank = np.zeros(raw_frame_shape, dtype=np.uint8)
+        blank = np.zeros((self.height, self.width), dtype=np.uint8)
         self.frame_buffer = deque([blank.copy() for _ in range(num_frames)], maxlen=num_frames)
 
     def reset(self):
