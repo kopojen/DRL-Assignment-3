@@ -24,7 +24,7 @@ class Agent(object):
             return self.previous_action
         
         state = self.processor.process(observation)
-        action = self.agent.select_action(state, use_epsilon=False)
+        action = self.agent.select_action(state, explore=False)
         self.frame_skip_counter = 3
         self.previous_action = action
         return action
