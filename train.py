@@ -124,7 +124,7 @@ class PrioritizedReplay:
     def __len__(self):
         return self.size
 
-class DuelingCNNQNet(nn.Module):
+class DuelingDQN(nn.Module):
     """
     Dueling Deep Q-Network with convolutional feature extractor for image inputs.
 
