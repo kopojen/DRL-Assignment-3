@@ -128,36 +128,29 @@ class DuelingDQN(nn.Module):
     def __init__(self, in_shape, n_actions):
         super().__init__()
         c, h, w = in_shape
-
-        self.feature_extractor = nn.Sequential(
+        self.conv_layers = nn.Sequential(
             nn.Conv2d(c, 32, 8, 4), nn.ReLU(),
             nn.Conv2d(32, 64, 4, 2), nn.ReLU(),
             nn.Conv2d(64, 64, 3, 1), nn.ReLU()
         )
-
         with torch.no_grad():
             dummy = torch.zeros(1, c, h, w)
-            feat_out = self.feature_extractor(dummy)
-            flat_size = int(np.prod(feat_out.shape[1:]))
+            flat = int(np.prod(self.conv_layers(dummy).shape[1:]))
 
         self.value_stream = nn.Sequential(
-            nn.Linear(flat_size, 512),
-            nn.ReLU(),
-            nn.Linear(512, 1)
+            nn.Linear(flat, 512), nn.ReLU(), nn.Linear(512, 1)
         )
-
-        self.adv_stream = nn.Sequential(
-            nn.Linear(flat_size, 512),
-            nn.ReLU(),
-            nn.Linear(512, n_actions)
+        self.advantage_stream = nn.Sequential(
+            nn.Linear(flat, 512), nn.ReLU(), nn.Linear(512, n_actions)
         )
+        self.n_actions = n_actions
 
     def forward(self, x):
-        features = self.feature_extractor(x)
-        flat = features.view(features.size(0), -1)
-        value = self.value_stream(flat)
-        adv   = self.adv_stream(flat)
-        return value + (adv - adv.mean(dim=1, keepdim=True))
+        x = self.conv_layers(x).view(x.size(0), -1)
+        value = self.value_stream(x)
+        advantage = self.advantage_stream(x)
+        return value + (advantage - advantage.mean(dim=1, keepdim=True))
+
 
 class RainbowAgent:
     """Dueling, Double-DQN, PER (no C51/NoisyNet/N-step)."""
@@ -185,7 +178,7 @@ class RainbowAgent:
 
     def select_action(self, state, explore=True):
         if explore and random.random() < self.eps:
-            return random.randrange(self.policy_net.adv[-1].out_features)
+            return random.randrange(self.policy_net.adv_stream[-1].out_features)
         with torch.no_grad():
             q = self.policy_net(torch.tensor(state, device=self.device).unsqueeze(0))
         return int(q.argmax())
