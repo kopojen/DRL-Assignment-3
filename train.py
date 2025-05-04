@@ -124,33 +124,82 @@ class PrioritizedReplay:
     def __len__(self):
         return self.size
 
-class DuelingDQN(nn.Module):
-    def __init__(self, in_shape, n_actions):
+class DuelingCNNQNet(nn.Module):
+    """
+    Dueling Deep Q-Network with convolutional feature extractor for image inputs.
+
+    Architecture:
+      1. Convolutional backbone: 3 conv layers with ReLU
+      2. Splits into two streams:
+         - Value stream V(s)
+         - Advantage stream A(s,a)
+      3. Combines via Q(s,a) = V(s) + (A(s,a) - mean_a A(s,a))
+    """
+    def __init__(
+        self,
+        input_shape: tuple,
+        num_actions: int
+    ):
         super().__init__()
-        c, h, w = in_shape
-        self.conv_layers = nn.Sequential(
-            nn.Conv2d(c, 32, 8, 4), nn.ReLU(),
-            nn.Conv2d(32, 64, 4, 2), nn.ReLU(),
-            nn.Conv2d(64, 64, 3, 1), nn.ReLU()
+        c, h, w = input_shape
+        self.num_actions = num_actions
+
+        # --- convolutional feature extractor ---
+        self.feature_extractor = nn.Sequential(
+            nn.Conv2d(c, 32, kernel_size=8, stride=4),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1),
+            nn.ReLU(inplace=True)
         )
+        
+        self.conv_layers = self.feature_extractor
+        # compute flattened feature size for linear layers
         with torch.no_grad():
             dummy = torch.zeros(1, c, h, w)
-            flat = int(np.prod(self.conv_layers(dummy).shape[1:]))
+            feat_out = self.feature_extractor(dummy)
+            flat_size = int(np.prod(feat_out.shape[1:]))
 
+        # --- value stream ---
         self.value_stream = nn.Sequential(
-            nn.Linear(flat, 512), nn.ReLU(), nn.Linear(512, 1)
+            nn.Linear(flat_size, 512),
+            nn.ReLU(inplace=True),
+            nn.Linear(512, 1)
         )
-        self.advantage_stream = nn.Sequential(
-            nn.Linear(flat, 512), nn.ReLU(), nn.Linear(512, n_actions)
+
+        # --- advantage stream ---
+        self.adv_stream = nn.Sequential(
+            nn.Linear(flat_size, 512),
+            nn.ReLU(inplace=True),
+            nn.Linear(512, num_actions)
         )
-        self.n_actions = n_actions
+        
+        self.advantage_stream = self.adv_stream
 
-    def forward(self, x):
-        x = self.conv_layers(x).view(x.size(0), -1)
-        value = self.value_stream(x)
-        advantage = self.advantage_stream(x)
-        return value + (advantage - advantage.mean(dim=1, keepdim=True))
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass.
 
+        Args:
+            x: Tensor of shape (batch, C, H, W), dtype float32.
+               Expected normalized inputs.
+
+        Returns:
+            Tensor of Q-values, shape (batch, num_actions).
+        """
+        # extract features
+        features = self.feature_extractor(x)
+        # flatten
+        flat = features.view(features.size(0), -1)
+
+        # compute streams
+        value = self.value_stream(flat)              # shape: (batch, 1)
+        advantages = self.adv_stream(flat)           # shape: (batch, num_actions)
+
+        # combine into Q-values
+        q_vals = value + (advantages - advantages.mean(dim=1, keepdim=True))
+        return q_vals
 
 class RainbowAgent:
     """Dueling, Double-DQN, PER (no C51/NoisyNet/N-step)."""
