@@ -1,39 +1,32 @@
 import gym
 import torch
-from train import DuelingDQN, FramePreprocessor
+from train import DuelingDQN, FramePreprocessor  # 注意要 match train.py 的 class 名稱
 
-# --- Device and checkpoint path ---
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-Q_PATH = "best.pth"  # replace with your actual file
+Q_PATH = "best.pth"  # 替換成你要用的檔案
 
-class Agent(object):
-    """Agent for Super Mario using pretrained Rainbow DQN (Dueling + PER)."""
+class Agent:
     def __init__(self):
         self.action_space = gym.spaces.Discrete(12)
-
-        # Load Q-network (policy network only, no target needed during inference)
         self.q_net = DuelingDQN((4, 84, 84), 12).to(DEVICE)
         self.q_net.load_state_dict(torch.load(Q_PATH, map_location=DEVICE))
         self.q_net.eval()
-
-        # Frame stacker / preprocessor
         self.processor = FramePreprocessor()
-
-        # Frame skip logic
-        self.prev_action = None
-        self.skip_counter = 0
+        self.skip_count = 0
+        self.last_action = None
 
     def act(self, observation):
-        if self.skip_counter > 0:
-            self.skip_counter -= 1
-            return self.prev_action
+        if self.skip_count > 0:
+            self.skip_count -= 1
+            return self.last_action
 
         state = self.processor.process(observation)
-        state_tensor = torch.tensor(state, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+        state = torch.tensor(state, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+
         with torch.no_grad():
-            q_values = self.q_net(state_tensor)
+            q_values = self.q_net(state)
         action = int(q_values.argmax().item())
 
-        self.prev_action = action
-        self.skip_counter = 3
+        self.last_action = action
+        self.skip_count = 3
         return action

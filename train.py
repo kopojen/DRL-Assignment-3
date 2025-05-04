@@ -128,21 +128,36 @@ class DuelingDQN(nn.Module):
     def __init__(self, in_shape, n_actions):
         super().__init__()
         c, h, w = in_shape
-        self.features = nn.Sequential(
+
+        self.feature_extractor = nn.Sequential(
             nn.Conv2d(c, 32, 8, 4), nn.ReLU(),
             nn.Conv2d(32, 64, 4, 2), nn.ReLU(),
             nn.Conv2d(64, 64, 3, 1), nn.ReLU()
         )
+
         with torch.no_grad():
-            flat = int(np.prod(self.features(torch.zeros(1, *in_shape)).shape[1:]))
-        self.value = nn.Sequential(nn.Linear(flat, 512), nn.ReLU(), nn.Linear(512, 1))
-        self.adv   = nn.Sequential(nn.Linear(flat, 512), nn.ReLU(), nn.Linear(512, n_actions))
+            dummy = torch.zeros(1, c, h, w)
+            feat_out = self.feature_extractor(dummy)
+            flat_size = int(np.prod(feat_out.shape[1:]))
+
+        self.value_stream = nn.Sequential(
+            nn.Linear(flat_size, 512),
+            nn.ReLU(),
+            nn.Linear(512, 1)
+        )
+
+        self.adv_stream = nn.Sequential(
+            nn.Linear(flat_size, 512),
+            nn.ReLU(),
+            nn.Linear(512, n_actions)
+        )
 
     def forward(self, x):
-        f = self.features(x).view(x.size(0), -1)
-        v = self.value(f)
-        a = self.adv(f)
-        return v + a - a.mean(dim=1, keepdim=True)
+        features = self.feature_extractor(x)
+        flat = features.view(features.size(0), -1)
+        value = self.value_stream(flat)
+        adv   = self.adv_stream(flat)
+        return value + (adv - adv.mean(dim=1, keepdim=True))
 
 class RainbowAgent:
     """Dueling, Double-DQN, PER (no C51/NoisyNet/N-step)."""
@@ -279,15 +294,14 @@ def main():
                         epsilon=f"{agent.eps:.3f}")
 
         # live curve
-        if (ep+1) == 0:
-            plt.figure()
-            plt.plot(ep_hist, score_hist, alpha=0.3, label="score")
-            if len(score_hist) >= 10:
-                ma = np.convolve(score_hist, np.ones(10)/10, mode="valid")
-                plt.plot(ep_hist[9:], ma, label="10-ep MA")
-            plt.xlabel("Episode"); plt.ylabel("Score")
-            plt.title(f"Learning – {ENV_ID}"); plt.legend()
-            plt.savefig(f"learning_curve_{ENV_ID}.png"); plt.close()
+        plt.figure()
+        plt.plot(ep_hist, score_hist, alpha=0.3, label="score")
+        if len(score_hist) >= 10:
+            ma = np.convolve(score_hist, np.ones(10)/10, mode="valid")
+            plt.plot(ep_hist[9:], ma, label="10-ep MA")
+        plt.xlabel("Episode"); plt.ylabel("Score")
+        plt.title(f"Learning – {ENV_ID}"); plt.legend()
+        plt.savefig(f"learning_curve_{ENV_ID}.png"); plt.close()
 
 if __name__ == "__main__":
     main()
