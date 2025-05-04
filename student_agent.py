@@ -1,30 +1,39 @@
 import gym
 import torch
-from train import RainbowDQNAgent, MarioPreprocessor
+from train import DuelingDQN, FramePreprocessor
 
-# Do not modify the input of the 'act' function and the '__init__' function.
+# --- Device and checkpoint path ---
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-Q_PATH = "best_q_6637.pth"
-TARGET_PATH = "best_t_6637.pth"
+Q_PATH = "best.pth"  # replace with your actual file
 
 class Agent(object):
-    """Agent that selects actions using a trained Rainbow DQN."""
-
+    """Agent for Super Mario using pretrained Rainbow DQN (Dueling + PER)."""
     def __init__(self):
         self.action_space = gym.spaces.Discrete(12)
-        self.agent = RainbowDQNAgent((4, 84, 84), 12, DEVICE)
-        self.agent.load(Q_PATH, TARGET_PATH)
-        self.processor = MarioPreprocessor()
-        self.previous_action = None
-        self.frame_skip_counter = 0
+
+        # Load Q-network (policy network only, no target needed during inference)
+        self.q_net = DuelingDQN((4, 84, 84), 12).to(DEVICE)
+        self.q_net.load_state_dict(torch.load(Q_PATH, map_location=DEVICE))
+        self.q_net.eval()
+
+        # Frame stacker / preprocessor
+        self.processor = FramePreprocessor()
+
+        # Frame skip logic
+        self.prev_action = None
+        self.skip_counter = 0
 
     def act(self, observation):
-        if self.frame_skip_counter > 0:
-            self.frame_skip_counter -= 1
-            return self.previous_action
-        
+        if self.skip_counter > 0:
+            self.skip_counter -= 1
+            return self.prev_action
+
         state = self.processor.process(observation)
-        action = self.agent.select_action(state, explore=False)
-        self.frame_skip_counter = 3
-        self.previous_action = action
+        state_tensor = torch.tensor(state, dtype=torch.float32, device=DEVICE).unsqueeze(0)
+        with torch.no_grad():
+            q_values = self.q_net(state_tensor)
+        action = int(q_values.argmax().item())
+
+        self.prev_action = action
+        self.skip_counter = 3
         return action
